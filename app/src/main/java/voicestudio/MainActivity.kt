@@ -5,6 +5,8 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.media.MediaRecorder
 import android.os.Bundle
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -33,12 +35,10 @@ fun VoiceStudioScreen() {
     val context = LocalContext.current
 
     var script by remember { mutableStateOf("") }
-    var selectedAudio by remember {
-        mutableStateOf("कुनै अडियो छानिएको छैन")
-    }
-    var status by remember {
-        mutableStateOf("आफ्नो आवाजको नमुना तयार गर्नुहोस्।")
-    }
+    var selectedAudio by remember { mutableStateOf("कुनै अडियो छानिएको छैन") }
+    var selectedAudioUri by remember { mutableStateOf<Uri?>(null) }
+    var status by remember { mutableStateOf("आफ्नो आवाजको नमुना तयार गर्नुहोस्।") }
+    var style by remember { mutableStateOf("दमदार") }
     var isRecording by remember { mutableStateOf(false) }
     var recorder by remember { mutableStateOf<MediaRecorder?>(null) }
     var recordingFile by remember { mutableStateOf<File?>(null) }
@@ -62,6 +62,7 @@ fun VoiceStudioScreen() {
 
             recorder = newRecorder
             recordingFile = file
+            selectedAudioUri = Uri.fromFile(file)
             isRecording = true
             status = "आवाज रेकर्ड भइरहेको छ..."
         } catch (e: Exception) {
@@ -77,7 +78,8 @@ fun VoiceStudioScreen() {
             recorder?.stop()
             recordingFile?.let {
                 selectedAudio = it.name
-                status = "आवाज रेकर्ड भयो।"
+                selectedAudioUri = Uri.fromFile(it)
+                status = "आवाज सफलतापूर्वक सुरक्षित भयो।"
             }
         } catch (e: Exception) {
             status = "रेकर्डिङ सुरक्षित भएन। फेरि प्रयास गर्नुहोस्।"
@@ -92,17 +94,22 @@ fun VoiceStudioScreen() {
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) {
-            startRecording()
-        } else {
-            status = "रेकर्डिङका लागि माइक्रोफोन अनुमति आवश्यक छ।"
-        }
+        if (granted) startRecording()
+        else status = "माइक्रोफोन अनुमति आवश्यक छ।"
     }
 
     val audioPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
+        ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Exception) {
+            }
+            selectedAudioUri = uri
             selectedAudio = uri.lastPathSegment ?: "अडियो फाइल चयन भयो"
             status = "अडियो फाइल चयन भयो।"
         }
@@ -129,7 +136,7 @@ fun VoiceStudioScreen() {
                     style = MaterialTheme.typography.headlineSmall
                 )
 
-                Text("नेपाली समाचार र युट्युब भिडियोका लागि व्यक्तिगत भ्वाइस स्टुडियो।")
+                Text("नेपाली समाचार तथा युट्युब भिडियोका लागि व्यक्तिगत आवाज स्टुडियो।")
 
                 ElevatedCard {
                     Column(
@@ -138,7 +145,7 @@ fun VoiceStudioScreen() {
                     ) {
                         Text("१. आफ्नो आवाजको नमुना", style = MaterialTheme.typography.titleMedium)
 
-                        Text("सफा आवाजमा कम्तीमा ५ मिनेट रेकर्ड गर्नुहोस्।")
+                        Text("सफा वातावरणमा कम्तीमा ५ मिनेट आवाज रेकर्ड गर्नुहोस्।")
 
                         Button(
                             onClick = {
@@ -150,13 +157,10 @@ fun VoiceStudioScreen() {
                                         Manifest.permission.RECORD_AUDIO
                                     ) == PackageManager.PERMISSION_GRANTED
 
-                                    if (granted) {
-                                        startRecording()
-                                    } else {
-                                        permissionLauncher.launch(
-                                            Manifest.permission.RECORD_AUDIO
-                                        )
-                                    }
+                                    if (granted) startRecording()
+                                    else permissionLauncher.launch(
+                                        Manifest.permission.RECORD_AUDIO
+                                    )
                                 }
                             },
                             modifier = Modifier.fillMaxWidth()
@@ -168,7 +172,7 @@ fun VoiceStudioScreen() {
                         }
 
                         OutlinedButton(
-                            onClick = { audioPicker.launch("audio/*") },
+                            onClick = { audioPicker.launch(arrayOf("audio/*")) },
                             modifier = Modifier.fillMaxWidth(),
                             enabled = !isRecording
                         ) {
@@ -191,7 +195,7 @@ fun VoiceStudioScreen() {
                             onValueChange = { script = it },
                             modifier = Modifier.fillMaxWidth().heightIn(min = 150.dp),
                             placeholder = {
-                                Text("यहाँ आफ्नो समाचार वा युट्युब स्क्रिप्ट लेख्नुहोस्…")
+                                Text("यहाँ आफ्नो नेपाली समाचार वा युट्युब स्क्रिप्ट लेख्नुहोस्...")
                             },
                             minLines = 5
                         )
@@ -203,18 +207,35 @@ fun VoiceStudioScreen() {
                 ElevatedCard {
                     Column(
                         Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Text("३. आवाजको शैली", style = MaterialTheme.typography.titleMedium)
-                        Text("दमदार • भावनात्मक • व्यावसायिक नेपाली प्रस्तोता")
+
+                        listOf(
+                            "दमदार",
+                            "भावनात्मक",
+                            "व्यावसायिक",
+                            "शान्त"
+                        ).forEach { option ->
+                            Row {
+                                RadioButton(
+                                    selected = style == option,
+                                    onClick = { style = option }
+                                )
+                                Text(
+                                    option,
+                                    modifier = Modifier.padding(top = 12.dp)
+                                )
+                            }
+                        }
 
                         Button(
                             onClick = {
-                                status = "वास्तविक आवाज क्लोन गर्न एआई सर्भर जोड्न बाँकी छ।"
+                                status = "आवाज क्लोन गर्ने एआई इन्जिन जोड्न बाँकी छ।"
                             },
                             modifier = Modifier.fillMaxWidth(),
                             enabled = script.isNotBlank() &&
-                                selectedAudio != "कुनै अडियो छानिएको छैन" &&
+                                selectedAudioUri != null &&
                                 !isRecording
                         ) {
                             Text("आफ्नै आवाजमा अडियो बनाउनुहोस्")
@@ -225,7 +246,7 @@ fun VoiceStudioScreen() {
                 }
 
                 Text(
-                    "गोपनीयता: आफ्नो आवाज मात्र प्रयोग गर्नुहोस्। वास्तविक क्लोनिङका लागि सुरक्षित एआई सेवा जोड्न बाँकी छ।",
+                    "गोपनीयता: आफ्नो आवाज मात्र प्रयोग गर्नुहोस्। वास्तविक आवाज उत्पादनका लागि सुरक्षित एआई इन्जिन जोड्न बाँकी छ।",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
